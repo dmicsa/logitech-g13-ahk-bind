@@ -425,7 +425,7 @@ StartRepeat(id, action) {
         "nextTick", now + InitialRepeatDelayMs
     )
 
-    ExecuteAction(action)
+    ExecuteAction(id, action)
 }
 
 StopRepeat(id) {
@@ -445,20 +445,37 @@ ProcessRepeats() {
     now := A_TickCount
     for id, state in ActiveRepeats {
         if (now >= state["nextTick"]) {
-            ExecuteAction(state["action"])
+            ExecuteAction(id, state["action"])
             state["nextTick"] := now + RepeatDelayMs
             ActiveRepeats[id] := state
         }
     }
 }
 
-ExecuteAction(action) {
+ExecuteAction(id, action) {
     kind := Type(action)
     if (kind = "Func" || kind = "BoundFunc") {
+        StopRepeat(id)   ; function bindings are one-shot — stop before running
         action.Call()
         return
     }
-    Send(action)
+
+    ; For string bindings, default to literal text to avoid modifier interpretation
+    ; (e.g. !, ^, +, # inside chat phrases). Keep Send() for keystroke syntax.
+    if IsKeystrokeString(action)
+        Send(action)
+    else
+        SendText(action)
+}
+
+IsKeystrokeString(action) {
+    ; Explicit key tokens such as {Enter}, {Media_Next}, etc.
+    if InStr(action, "{") || InStr(action, "}")
+        return true
+
+    ; Modifier shorthand at start, e.g. ^c, !f, +{Tab}, #r
+    first := SubStr(action, 1, 1)
+    return (first = "^" || first = "!" || first = "+" || first = "#")
 }
 
 ; -----------------------------
@@ -476,7 +493,6 @@ OnExit((*) => (ReleaseThumbstickKeys(), StopAllRepeats()))
 ; =============================================================
 
 YahooQuote() {
-    StopRepeat("G1")        ; one-shot — do not repeat while held
     Send("^c")
     Sleep(100)
     Run("https://finance.yahoo.com/quote/" . A_Clipboard)
